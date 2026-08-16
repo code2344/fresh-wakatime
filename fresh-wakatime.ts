@@ -59,3 +59,88 @@ editor.defineConfigBoolean("debug", {
     description: "Print debug messages to the console.",
 });
 
+type PluginSettings = {
+    enabled: boolean;
+    cliPath: string;
+    heartbeatIntervalSeconds: number;
+    trackCursorMovement: boolean;
+    trackEdits: boolean;
+    trackBufferActivation: boolean;
+    excludePathRegex: string;
+    dryRun: boolean;
+    debug: boolean;
+};
+
+type FreshActivityEvent = {
+    buffer_id?: number;
+    bufferId?: number;
+    path?: string;
+    line?: number;
+};
+
+type ActivityType =
+    | "buffer-activated"
+    | "edit"
+    | "cursor"
+    | "save";
+
+// state
+
+let lastHeartbeatFile: string | null = null;
+let lastHeartbeatTime = 0;
+
+let heartbeatInProgress = false;
+
+// read the config
+
+function getPluginSettings(): PluginSettings {
+    const config = 
+        (editor.getPluginConfig() ?? {}) as Partial<PluginSettings>;
+    
+    return {
+        enabled: config.enabled !== false,
+
+        cliPath:
+            typeof config.cliPath === "string" &&
+            config.cliPath.trim() !== ""
+                ? config.cliPath.trim()
+                : "wakatime-cli",
+            
+        heartbeatIntervalSeconds:
+            typeof config.heartbeatIntervalSeconds === "number" &&
+                ? config.heartbeatIntervalSeconds
+                : DEFAULT_HEARTBEAT_INTERVAL,
+
+        trackCursorMovement:
+            config.trackCursorMovement !== false,
+        
+        trackEdits:
+            config.trackEdits !== false,
+
+        trackBufferActivation:
+            config.trackBufferActivation !== false,
+        
+        excludePathRegex:
+            typeof config.excludePathRegex === "string" 
+            ? config.excludePathRegex
+            : DEFAULT_EXCLUDE_REGEX,
+        
+        dryRun:
+            config.dryRun === true,
+        
+        debug:
+            config.debug === true,
+    };
+}
+
+//logging
+
+function debug(message: string):void {
+    if (!getPluginSettings().debug) {
+        return;
+    }
+    
+    editor.debug(`[${PLUGIN_NAME}] ${message}`);
+}
+
+// find the file associated with an event
