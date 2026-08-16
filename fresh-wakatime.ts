@@ -107,7 +107,7 @@ function getPluginSettings(): PluginSettings {
                 : "wakatime-cli",
             
         heartbeatIntervalSeconds:
-            typeof config.heartbeatIntervalSeconds === "number" &&
+            typeof config.heartbeatIntervalSeconds === "number"
                 ? config.heartbeatIntervalSeconds
                 : DEFAULT_HEARTBEAT_INTERVAL,
 
@@ -144,3 +144,96 @@ function debug(message: string):void {
 }
 
 // find the file associated with an event
+
+function getBufferId(event?: FreshActivityEvent): number {
+    if (
+        event &&
+        typeof event.buffer_id === "number"
+    ) {
+        return event.buffer_id;
+    }
+
+    if (
+        event &&
+        typeof event.bufferId === "number"
+    ) {
+        return event.bufferId;
+    }
+
+    return editor.getActiveBufferId();
+}
+
+function getFilePath(
+    event?: FreshActivityEvent,
+): string | null {
+    // buffer_save ggives us a direct actual path
+    if (
+        event &&
+        typeof event.path === "string" &&
+        event.path.trim() !== ""
+    ) {
+        return event.path.trim();
+    }
+
+    const bufferId = getBufferId(event);
+
+    if (bufferId === null) {
+        return null;
+    }
+
+    const path = editor.getBufferPath(bufferId);
+
+    if (!path || path.trim() === "") {
+        return null;
+    }
+
+    return path;
+}
+
+// current line
+
+function getLineNumber(
+  event?: FreshActivityEvent,
+): number | null {
+  if (
+    event &&
+    typeof event.line === "number" &&
+    event.line > 0
+  ) {
+    return Math.floor(event.line);
+  }
+
+  try {
+    const line = editor.getCursorLine();
+
+    if (line > 0) {
+      return Math.floor(line);
+    }
+  } catch (_error) {
+    // some buffers don't have normal cursor
+  }
+
+  return null;
+}
+
+// exclusion checking so i don't fabricate heartbeats for this project
+
+function isExcluded(
+    filePath: string,
+    regexText: string,
+): boolean {
+    if (regexText.trim() === "") {
+        return false;
+    }
+
+    try {
+        const regex = new RegExp(regexText);
+        return regex.test(filePath);
+    } catch (error) {
+        // i'd rather track nothing than accidentally track everything if there's  a typo in the exclusion path/regex
+        editor.warn(
+          `[${PLUGIN_NAME}] Invalid excludePathRegex: ${String(error)}`,
+        );
+        return true;
+    }
+}
