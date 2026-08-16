@@ -268,3 +268,62 @@ function shouldSendHeartbeat(
 }
 
 // build wakatime-cli command args
+
+function buildHeartbeatArgs(
+    filePath: string,
+    lineNumber: number | null,
+    isWrite: boolean,
+): string[] {
+    const args = [
+        "--entity",
+        filePath,
+
+        "--plugin",
+        `${PLUGIN_NAME}/${PLUGIN_VERSION}`,
+    ];
+
+    if (lineNumber !== null) {
+        args.push("--lineno", String(lineNumber));
+    }
+
+    if (isWrite) {
+        args.push("--write");
+    }
+    
+    return args;
+}
+
+// now send this heartbeat
+
+async function sendHeartbeat(
+    event: FreshActivityEvent | undefined,
+    isWrite: boolean,
+    activityType: ActivityType,
+): Promise<void> {
+    const settings = getPluginSettings();
+
+    // is tracking enabled?
+    if (!settings.enabled) {
+        debug(`ignored ${activityType} event because tracking is disabled`);
+        return;
+    }
+
+    const filePath = getFilePath(event);
+
+    if (filePath === null) {
+        debug(`ignored ${activityType} event because no file path could be determined`);
+        return;
+    }
+
+    if (isExcluded(filePath, settings.excludePathRegex)) {
+        debug(`ignored ${activityType} event for excluded file path: ${filePath}`);
+        return;
+    }
+
+    if (
+        !shouldSendHeartbeat(
+            filePath,
+            isWrite,
+            settings.heartbeatIntervalSeconds,
+        )
+
