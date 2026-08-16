@@ -326,4 +326,44 @@ async function sendHeartbeat(
             isWrite,
             settings.heartbeatIntervalSeconds,
         )
+    ) {
+        debug(`ignored ${activityType} event for file path: ${filePath} because of throttling`);
+        return;
+    }
 
+    // avoid simultaneous heartbeats
+    if (
+        heartbeatInProgress &&
+        !isWrite
+    ) {
+        debug(
+            `ignored ${activityType}: heartbeat already running`,
+        );
+
+        return;
+    }
+
+    heartbeatInProgress = true;
+
+    try {
+        const lineNumber = event?.line ?? null;
+        const args = buildHeartbeatArgs(filePath, lineNumber, isWrite);
+
+        if (settings.dryRun) {
+            debug(`dry run: ${settings.cliPath} ${args.join(" ")}`);
+            return;
+        }
+
+        await runCommand(settings.cliPath, args);
+
+        lastHeartbeatFile = filePath;
+        lastHeartbeatTime = Date.now();
+
+        debug(`sent ${activityType} heartbeat for file: ${filePath}`);
+    } finally {
+        heartbeatInProgress = false;
+    }
+}
+
+
+// fresh event handlers
