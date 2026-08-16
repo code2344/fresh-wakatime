@@ -237,3 +237,34 @@ function isExcluded(
         return true;
     }
 }
+
+
+// throttling
+
+function shouldSendHeartbeat(
+    filePath: string,
+    isWrite: boolean,
+    intervalSeconds: number,
+): boolean {
+    if (isWrite) {
+        return true;
+    }
+
+    // first heartbeat
+    if (lastHeartbeatFile === null) {
+        return true;
+    }
+
+    // different file
+    if (filePath !== lastHeartbeatFile) {
+        return true;
+    }
+
+    const elapsed = Date.now() - lastHeartbeatTime;
+
+    return (
+        elapsed >= intervalSeconds * 1000
+    )
+}
+
+// build wakatime-cli command args
