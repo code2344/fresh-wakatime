@@ -346,24 +346,293 @@ async function sendHeartbeat(
     heartbeatInProgress = true;
 
     try {
-        const lineNumber = event?.line ?? null;
-        const args = buildHeartbeatArgs(filePath, lineNumber, isWrite);
+                const args = buildHeartbeatArgs(
+                        filePath,
+                        getLineNumber(event),
+                        isWrite,
+                );
 
-        if (settings.dryRun) {
-            debug(`dry run: ${settings.cliPath} ${args.join(" ")}`);
-            return;
+                const result = await editor.spawnProcess(
+                        settings.cliPath,
+                        args,
+                );
+
+                if (result.exit_code !== 0) {
+                        editor.warn(
+                                `[${PLUGIN_NAME}] wakatime-cli failed: ` +
+                                result.stderr.trim(),
+                        );
+
+                        return;
+                }
+
+                // Only update throttling state after a successful CLI invocation.
+                lastHeartbeatFile = filePath;
+
+                lastHeartbeatTime = Date.now();
+
+                debug(
+                        `sent ${activityType} heartbeat: ${filePath}`,
+                );
+        } catch (error) {
+                editor.warn(
+                        `[${PLUGIN_NAME}] could not run wakatime-cli: ` +
+                        String(error),
+                );
+        } finally {
+                heartbeatInProgress = false;
         }
-
-        await runCommand(settings.cliPath, args);
-
-        lastHeartbeatFile = filePath;
-        lastHeartbeatTime = Date.now();
-
-        debug(`sent ${activityType} heartbeat for file: ${filePath}`);
-    } finally {
-        heartbeatInProgress = false;
-    }
 }
 
 
 // fresh event handlers
+
+function registerHandler(
+  name: string,
+  handler: (event: FreshActivityEvent | undefined) => void | Promise<void>,
+): void {
+  editor.registerCommand(name, "", name);
+  // Register the handler implementation
+  (editor as any)[`_${name}`] = handler;
+}
+
+registerHandler(
+  "fresh_wakatime_buffer_activated",
+  async (
+    event: FreshActivityEvent | undefined,
+  ) => {
+    if (
+            !getPluginSettings()
+        .trackBufferActivation
+    ) {
+      return;
+    }
+
+    await sendHeartbeat(
+      event,
+      false,
+      "buffer-activated",
+    );
+  },
+);
+
+registerHandler(
+    "fresh_wakatime_after_insert",
+    async (
+        event: FreshActivityEvent | undefined,
+    ) => {
+        if (
+            !getPluginSettings()
+                .trackEdits
+        ) {
+            return;
+        }
+
+        await sendHeartbeat(
+            event,
+            false,
+            "edit",
+        );
+    },
+);
+
+registerHandler(
+    "fresh_wakatime_after_delete",
+    async (
+        event: FreshActivityEvent | undefined,
+    ) => {
+        if (
+            !getPluginSettings()
+                .trackEdits
+        ) {
+            return;
+        }
+
+        await sendHeartbeat(
+            event,
+            false,
+            "edit",
+        );
+    },
+);
+
+registerHandler(
+    "fresh_wakatime_cursor_moved",
+    async (
+        event: FreshActivityEvent | undefined,
+    ) => {
+        if (
+            !getPluginSettings()
+                .trackCursorMovement
+        ) {
+            return;
+        }
+
+        await sendHeartbeat(
+            event,
+            false,
+            "cursor",
+        );
+    },
+);
+
+registerHandler(
+    "fresh_wakatime_buffer_save",
+    async (
+        event: FreshActivityEvent | undefined,
+    ) => {
+        await sendHeartbeat(
+            event,
+            true,
+            "save",
+        );
+    },
+);
+
+// subscribe to fresh events
+
+editor.on(
+    "buffer_activated",
+    "fresh_wakatime_buffer_activated",
+);
+
+editor.on(
+    "after_insert",
+    "fresh_wakatime_after_insert",
+);
+
+editor.on(
+    "after_delete",
+    "fresh_wakatime_after_delete",
+);
+
+editor.on(
+    "cursor_moved",
+    "fresh_wakatime_cursor_moved",
+);
+
+editor.on(
+    "buffer_save",
+    "fresh_wakatime_buffer_save",
+);
+
+//safe commands
+
+registerHandler(
+    "fresh_wakatime_status",
+    () => {
+        const settings = getPluginSettings();
+
+        const filePath = getFilePath();
+
+        let fileStatus = "no active file";
+
+        if (filePath !== null) {
+            if (
+                isExcluded(
+                    filePath,
+                    settings.excludePathRegex,
+                )
+            ) {
+                fileStatus = `current file excluded: ${filePath}`;
+            } else {
+                fileStatus = `current file trackable: ${filePath}`;
+            }
+        }
+
+        const statusText =
+            `WakaTime: ` +
+            `${settings.enabled ? "enabled" : "disabled"}` +
+            `${settings.dryRun ? " | dry-run" : ""}` +
+            ` | ${fileStatus}`;
+
+        editor.setStatus(statusText);
+    },
+);
+
+registerHandler(
+  "fresh_wakatime_check_cli",
+  async () => {
+    const settings =
+      getPluginSettings();
+
+    try {
+      // --version does not send a heartbeat.
+      const result =
+        await editor.spawnProcess(
+          settings.cliPath,
+          ["--version"],
+        );
+
+      if (result.exit_code === 0) {
+        editor.setStatus(
+          `WakaTime CLI: ${result.stdout.trim()}`,
+        );
+      } else {
+        editor.setStatus(
+          `WakaTime CLI failed with exit code ${result.exit_code}`,
+        );
+      }
+    } catch (error) {
+      editor.setStatus(
+        `WakaTime CLI unavailable: ${String(error)}`,
+      );
+    }
+  },
+);
+
+registerHandler(
+  "fresh_wakatime_check_exclusion",
+  () => {
+    const settings =
+      getPluginSettings();
+
+    const filePath =
+      getFilePath();
+
+    if (filePath === null) {
+      editor.setStatus(
+        "WakaTime: no active file",
+      );
+
+      return;
+    }
+
+    if (
+      isExcluded(
+        filePath,
+        settings.excludePathRegex,
+      )
+    ) {
+      editor.setStatus(
+        `WakaTime BLOCKED: ${filePath}`,
+      );
+    } else {
+      editor.setStatus(
+        `WakaTime allowed: ${filePath}`,
+      );
+    }
+  },
+);
+
+editor.registerCommand(
+  "WakaTime: Status",
+  "Show WakaTime plugin status",
+  "fresh_wakatime_status",
+);
+
+editor.registerCommand(
+  "WakaTime: Check CLI",
+  "Check wakatime-cli without sending a heartbeat",
+  "fresh_wakatime_check_cli",
+);
+
+editor.registerCommand(
+  "WakaTime: Check Current File Exclusion",
+  "Check whether the current file can be tracked",
+  "fresh_wakatime_check_exclusion",
+);
+
+debug(
+  "plugin loaded; no heartbeat sent on startup",
+);
