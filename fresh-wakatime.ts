@@ -7,7 +7,7 @@ const DEFAULT_HEARTBEAT_INTERVAL = 120; // seconds
 
 // exclude the project name of this project so i don't fraud
 const DEFAULT_EXCLUDE_REGEX =
-  String.raw`(^|[\\/])fresh-wakatime([\\/]|$)`;
+  String.raw`(^|[\\/])fresh-wakatime([\\/]|$)|[\\/]Library[\\/]Application Support[\\/]fresh[\\/]terminals[\\/]`;
 
 
 // configuration for the plugin
