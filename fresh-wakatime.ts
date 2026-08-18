@@ -29,7 +29,7 @@ editor.defineConfigInteger("heartbeatIntervalSeconds", {
     description: "Minimum time between normal heartbeats.",
 });
 
-editor.defineConfigString("trackCursorMovement", {
+editor.defineConfigBoolean("trackCursorMovement", {
     default: true,
     description: "Send heartbeats on cursor movement.",
 });
@@ -177,7 +177,7 @@ function getFilePath(
 
     const bufferId = getBufferId(event);
 
-    if (bufferId === null) {
+    if (bufferId === 0) {
         return null;
     }
 
@@ -343,6 +343,21 @@ async function sendHeartbeat(
         return;
     }
 
+    if (settings.dryRun) {
+        editor.info(
+            `[${PLUGIN_NAME}] dry-run: ` +
+            `${settings.cliPath} ` +
+            JSON.stringify(
+                buildHeartbeatArgs(
+                    filePath,
+                    getLineNumber(event),
+                    isWrite,
+                ),
+            ),
+        );
+        return;
+    }
+
     heartbeatInProgress = true;
 
     try {
@@ -387,107 +402,71 @@ async function sendHeartbeat(
 
 // fresh event handlers
 
-function registerHandler(
-  name: string,
-  handler: (event: FreshActivityEvent | undefined) => void | Promise<void>,
-): void {
-  editor.registerCommand(name, "", name);
-  // Register the handler implementation
-  (editor as any)[`_${name}`] = handler;
-}
-
-registerHandler(
-  "fresh_wakatime_buffer_activated",
-  async (
+(globalThis as any).fresh_wakatime_buffer_activated = async function(
     event: FreshActivityEvent | undefined,
-  ) => {
-    if (
-            !getPluginSettings()
-        .trackBufferActivation
-    ) {
-      return;
+): Promise<void> {
+    if (!getPluginSettings().trackBufferActivation) {
+        return;
     }
 
     await sendHeartbeat(
-      event,
-      false,
-      "buffer-activated",
+        event,
+        false,
+        "buffer-activated",
     );
-  },
-);
+};
 
-registerHandler(
-    "fresh_wakatime_after_insert",
-    async (
-        event: FreshActivityEvent | undefined,
-    ) => {
-        if (
-            !getPluginSettings()
-                .trackEdits
-        ) {
-            return;
-        }
+(globalThis as any).fresh_wakatime_after_insert = async function(
+    event: FreshActivityEvent | undefined,
+): Promise<void> {
+    if (!getPluginSettings().trackEdits) {
+        return;
+    }
 
-        await sendHeartbeat(
-            event,
-            false,
-            "edit",
-        );
-    },
-);
+    await sendHeartbeat(
+        event,
+        false,
+        "edit",
+    );
+};
 
-registerHandler(
-    "fresh_wakatime_after_delete",
-    async (
-        event: FreshActivityEvent | undefined,
-    ) => {
-        if (
-            !getPluginSettings()
-                .trackEdits
-        ) {
-            return;
-        }
+(globalThis as any).fresh_wakatime_after_delete = async function(
+    event: FreshActivityEvent | undefined,
+): Promise<void> {
+    if (!getPluginSettings().trackEdits) {
+        return;
+    }
 
-        await sendHeartbeat(
-            event,
-            false,
-            "edit",
-        );
-    },
-);
+    await sendHeartbeat(
+        event,
+        false,
+        "edit",
+    );
+};
 
-registerHandler(
-    "fresh_wakatime_cursor_moved",
-    async (
-        event: FreshActivityEvent | undefined,
-    ) => {
-        if (
-            !getPluginSettings()
-                .trackCursorMovement
-        ) {
-            return;
-        }
+(globalThis as any).fresh_wakatime_cursor_moved = async function(
+    event: FreshActivityEvent | undefined,
+): Promise<void> {
+    if (!getPluginSettings().trackCursorMovement) {
+        return;
+    }
 
-        await sendHeartbeat(
-            event,
-            false,
-            "cursor",
-        );
-    },
-);
+    await sendHeartbeat(
+        event,
+        false,
+        "cursor",
+    );
+};
 
-registerHandler(
-    "fresh_wakatime_buffer_save",
-    async (
-        event: FreshActivityEvent | undefined,
-    ) => {
-        await sendHeartbeat(
-            event,
-            true,
-            "save",
-        );
-    },
-);
+(globalThis as any).fresh_wakatime_buffer_save = async function(
+    event: FreshActivityEvent | undefined,
+): Promise<void> {
+    await sendHeartbeat(
+        event,
+        true,
+        "save",
+    );
+};
 
 // subscribe to fresh events
 
@@ -518,9 +497,7 @@ editor.on(
 
 //safe commands
 
-registerHandler(
-    "fresh_wakatime_status",
-    () => {
+(globalThis as any).fresh_wakatime_status = function(): void {
         const settings = getPluginSettings();
 
         const filePath = getFilePath();
@@ -528,92 +505,81 @@ registerHandler(
         let fileStatus = "no active file";
 
         if (filePath !== null) {
-            if (
-                isExcluded(
-                    filePath,
-                    settings.excludePathRegex,
-                )
-            ) {
-                fileStatus = `current file excluded: ${filePath}`;
-            } else {
-                fileStatus = `current file trackable: ${filePath}`;
-            }
+                if (
+                        isExcluded(
+                                filePath,
+                                settings.excludePathRegex,
+                        )
+                ) {
+                        fileStatus = `current file excluded: ${filePath}`;
+                } else {
+                        fileStatus = `current file trackable: ${filePath}`;
+                }
         }
 
         const statusText =
-            `WakaTime: ` +
-            `${settings.enabled ? "enabled" : "disabled"}` +
-            `${settings.dryRun ? " | dry-run" : ""}` +
-            ` | ${fileStatus}`;
+                `WakaTime: ` +
+                `${settings.enabled ? "enabled" : "disabled"}` +
+                `${settings.dryRun ? " | dry-run" : ""}` +
+                ` | ${fileStatus}`;
 
         editor.setStatus(statusText);
-    },
-);
+};
 
-registerHandler(
-  "fresh_wakatime_check_cli",
-  async () => {
-    const settings =
-      getPluginSettings();
+(globalThis as any).fresh_wakatime_check_cli = async function(): Promise<void> {
+        const settings = getPluginSettings();
 
-    try {
-      // --version does not send a heartbeat.
-      const result =
-        await editor.spawnProcess(
-          settings.cliPath,
-          ["--version"],
-        );
+        try {
+                // --version does not send a heartbeat.
+                const result = await editor.spawnProcess(
+                        settings.cliPath,
+                        ["--version"],
+                );
 
-      if (result.exit_code === 0) {
-        editor.setStatus(
-          `WakaTime CLI: ${result.stdout.trim()}`,
-        );
-      } else {
-        editor.setStatus(
-          `WakaTime CLI failed with exit code ${result.exit_code}`,
-        );
-      }
-    } catch (error) {
-      editor.setStatus(
-        `WakaTime CLI unavailable: ${String(error)}`,
-      );
-    }
-  },
-);
+                if (result.exit_code === 0) {
+                        editor.setStatus(
+                                `WakaTime CLI: ${result.stdout.trim()}`,
+                        );
+                } else {
+                        editor.setStatus(
+                                `WakaTime CLI failed with exit code ${result.exit_code}`,
+                        );
+                }
+        } catch (error) {
+                editor.setStatus(
+                        `WakaTime CLI unavailable: ${String(error)}`,
+                );
+        }
+};
 
-registerHandler(
-  "fresh_wakatime_check_exclusion",
-  () => {
-    const settings =
-      getPluginSettings();
+(globalThis as any).fresh_wakatime_check_exclusion = function(): void {
+        const settings = getPluginSettings();
 
-    const filePath =
-      getFilePath();
+        const filePath = getFilePath();
 
-    if (filePath === null) {
-      editor.setStatus(
-        "WakaTime: no active file",
-      );
+        if (filePath === null) {
+                editor.setStatus(
+                        "WakaTime: no active file",
+                );
 
-      return;
-    }
+                return;
+        }
 
-    if (
-      isExcluded(
-        filePath,
-        settings.excludePathRegex,
-      )
-    ) {
-      editor.setStatus(
-        `WakaTime BLOCKED: ${filePath}`,
-      );
-    } else {
-      editor.setStatus(
-        `WakaTime allowed: ${filePath}`,
-      );
-    }
-  },
-);
+        if (
+                isExcluded(
+                        filePath,
+                        settings.excludePathRegex,
+                )
+        ) {
+                editor.setStatus(
+                        `WakaTime BLOCKED: ${filePath}`,
+                );
+        } else {
+                editor.setStatus(
+                        `WakaTime allowed: ${filePath}`,
+                );
+        }
+};
 
 editor.registerCommand(
   "WakaTime: Status",
