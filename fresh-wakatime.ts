@@ -491,7 +491,7 @@ editor.on(
 );
 
 editor.on(
-    "buffer_save",
+    "after_file_save",
     "fresh_wakatime_buffer_save",
 );
 
